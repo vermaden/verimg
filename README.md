@@ -1,11 +1,10 @@
-# verimg
+# verimg(8)
 
 Tool for creating customized FreeBSD VM image(s) and also for unattended installation of PKGBASE based FreeBSD system.
 
-```
-These are the <tt><b>verimg(8)</b></tt> options.
+These are the `verimg(8)` options.
 
-<pre>
+```
 FreeBSD # verimg --help               
 usage:
   verimg: [OPTION(s)]
