@@ -1,0 +1,580 @@
+#! /bin/sh
+
+# Copyright (c) 2026 Slawomir Wojciech Wojtczak (vermaden)
+# All rights reserved.
+#
+# THIS SOFTWARE USES FREEBSD LICENSE (ALSO KNOWN AS 2-CLAUSE BSD LICENSE)
+# https://freebsd.org/copyright/freebsd-license.html
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that following conditions are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS 'AS IS' AND ANY
+# EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE FOR ANY
+# DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+# ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+# THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# ------------------------------
+# UNATTENDED VM IMAGE BUILDER
+# ------------------------------
+# vermaden [AT] interia [DOT] pl
+# https://vermaden.wordpress.com
+
+# DEFAULTS
+ARG_MODE=${ARG_MODE:-"fetch:build:setup"}
+ARG_FILE=${ARG_FILE:-"VERIMG"}
+ARG_SIZE=${ARG_SIZE:-"10g"}
+ARG_VERS=${ARG_VERS:-"releng/15.0"}
+ARG_INST=${ARG_INST:-"beadm:lsblk"}
+ARG_MNTD=${ARG_MNTD:-"/mnt"}
+ARG_TYPE=${ARG_TYPE:-"img"}
+ARG_REPO=${ARG_REPO:-"/usr/obj/usr/src/repo/FreeBSD:15:$( uname -m )/latest"}
+ARG_POOL=${ARG_POOL:-"sys"}
+ARG_BRCH=${ARG_BRCH:-"latest"}
+
+# pkg(8) KEYS
+PKG_NME="pkg.freebsd.org.2013102301"
+PKG_KEY="b0170035af3acc5f3f3ae1859dc717101b4e6c1d0a794ad554928ca0cbb2f438"
+BCK_NME="backup-signing-15"
+BCK_KEY="56a77bdcb6c3cf7984729c6138bd5617c24aa0d466b3b604c96205b2c5629f3c"
+AWS_NME="awskms-15"
+AWS_KEY="1d7b45d20fa8d6ed26f9b4a13ac81a6b5df860b9fe644d07b87e92298ba72595"
+
+# CLEAN IN BETWEEN AND AFTER
+trap "zpool export -f ${ARG_POOL}; mdconfig -d -u /dev/${DEVICE} 2> /dev/null" SIGINT SIGQUIT SIGHUP SIGTRAP SIGABRT SIGTERM
+
+# FUNCTION TO DISPLAY HELP (begin)
+__usage() {
+  NAME="${0##*/}"
+  echo "usage:"
+  echo "  ${NAME}: [OPTION(s)]"
+  echo
+  echo "options:"
+  echo "  -f FILE  which file to use for VM image (default: VERIMG)"
+  echo "  -s SIZE  size of VM image (default: 10g)"
+  echo "  -r VERS  which FreeBSD version to use (default: releng/15.0)"
+  echo "  -i LIST  colon (:) separated packages list to install (default: beadm:lsblk)"
+  echo "  -m MNTD  mount directory for installation (default: /mnt)"
+  echo "  -p POOL  specify ZFS pool name (default: sys)"
+  echo "  -b BRCH  specify branch for pkg(8) (default: latest)"
+  echo "  -n       display options and exit"
+  echo "  -t TYPE  type of operation is one of options:"
+  echo "           = img"
+  echo "             - create FILE backend and do setup there (default)"
+  echo "           = mnt"
+  echo "             - do not use FILE backend and just setup at mount dir"
+  echo "  -R REPO  dir where PKGBASE packages are located"
+  echo "           (default: /usr/obj/usr/src/repo/FreeBSD:15:amd64/latest)"
+  echo "  -M MODE  mode in which '${NAME}' to start:"
+  echo "           = fetch:build:setup (default)"
+  echo "             - fetch FreeBSD sources with git(1) clone into /usr/src"
+  echo "             - build FreeBSD from sources from /usr/src in /usr/obj"
+  echo "             - setup FreeBSD from /usr/obj PKGBASE repository"
+  echo "           = build:setup"
+  echo "             - build FreeBSD from sources from /usr/src in /usr/obj"
+  echo "             - setup FreeBSD from /usr/obj PKGBASE repository"
+  echo "           = setup"
+  echo "             - setup FreeBSD from /usr/obj PKGBASE repository"
+  echo
+  echo "examples:"
+  echo "  # verimg.sh -f FILE -s 20g -r releng/15.0 -i python:ansible"
+  echo
+  exit 1
+  }
+# FUNCTION TO DISPLAY HELP (end)
+
+# FUNCTION TO DISPLAY MESSAGE BEFORE COMMAND (begin)
+__m() {
+  echo
+  echo "# ${@}"
+  }
+# FUNCTION TO DISPLAY MESSAGE BEFORE COMMAND (end)
+
+# FUNCTION TO FETCH FreeBSD SOURCE (begin)
+__verimg_fetch() {
+  # CHECK git(1) IS INSTALLED
+  __m "which git(1)"
+  unalias    git 1> /dev/null 2> /dev/null
+  if ! which git 1> /dev/null 2> /dev/null
+  then
+    echo "NOPE: install 'devel/ffmpeg' package"
+    exit 1
+  fi
+
+  # FETCH FreeBSD SOURCES INTO /usr/src
+  __m "git clone -b  ${ARG_VERS}  --depth 1 https://git.freebsd.org/src.git"
+  if ! git clone -b "${ARG_VERS}" --depth 1 https://git.freebsd.org/src.git /usr/src 2> /dev/null
+  then
+    echo "NOPE: can not fetch FreeBSD '${ARG_VERS}' source"
+    exit 1
+  fi
+  }
+# FUNCTION TO FETCH FreeBSD SOURCE (end)
+
+# FUNCTION TO BUILD FreeBSD (begin)
+__verimg_build() {
+  __m "cd /usr/src"
+  if ! cd /usr/src 2> /dev/null
+  then
+    echo "NOPE: can not cd(1) into /usr/src dir."
+    exit 1
+  fi
+
+  # BUILD FREEBSD USERSPACE/KERNEL AND PKGBASE PACKAGES
+  __m "make -j $( nproc --ignore=1 ) buildworld buildkernel update-packages"
+  if ! make -j $( nproc --ignore=1 ) buildworld buildkernel update-packages 2> /dev/null
+  then
+    echo "NOPE: can not build FreeBSD from /usr/src source"
+    exit 1
+  fi
+  }
+# FUNCTION TO BUILD FreeBSD (end)
+
+# FUNCTION TO SETUP FreeBSD (begin)
+__verimg_setup() {
+  # CHANGE CURRENT DIR INTO REPO DIR
+  __m "cd "${ARG_REPO}""
+  if ! cd "${ARG_REPO}" 2> /dev/null
+  then
+    echo "NOPE: can not cd(1) into '${ARG_REPO}' dir"
+    exit 1
+  fi
+
+  # CREATE pkg(8) REPO INSIDE THAT DIR
+  __m "pkg repo ."
+  if ! pkg repo . 2> /dev/null
+  then
+    echo "NOPE: can not create pkg-repo(8) in '${ARG_REPO}' dir"
+    exit 1
+  fi
+
+  # CREATE repos DIR
+  __m "mkdir -p /usr/obj/repos"
+  if ! mkdir -p /usr/obj/repos 2> /dev/null
+  then
+    echo "NOPE: can not create '/usr/obj/repos' dir"
+    exit 1
+  fi
+
+  # CREATE pkg-repo(8) REPOSITORY CONFIG
+  __m "cat << EOF > /usr/obj/repos/FreeBSD-base.conf (...)"
+  if ! cat << EOF > /usr/obj/repos/FreeBSD-base.conf 2> /dev/null
+FreeBSD-base: {
+  url: "file://${ARG_REPO}",
+  enabled: yes
+}
+EOF
+  then
+    echo "NOPE: can not create /usr/obj/repos/FreeBSD-base.conf config"
+    exit 1
+  fi
+
+  # CREATE pkg(8) KEYS DIRS
+  __m "mkdir -p ${ARG_MNTD}/usr/share/keys (...)"
+  if ! mkdir -p \
+         "${ARG_MNTD}/usr/share/keys/pkg/trusted"        \
+         "${ARG_MNTD}/usr/share/keys/pkg/revoked"        \
+         "${ARG_MNTD}/usr/share/keys/pkgbase-15/trusted" \
+         "${ARG_MNTD}/usr/share/keys/pkgbase-15/revoked" 2> /dev/null
+  then
+    echo "NOPE: can not create pkg(8) keys dirs"
+    exit 1
+  fi
+
+  # CREATE pkg(8) KEYS 1/3
+  __m "cat << EOF > ${ARG_MNTD}/usr/share/keys/pkg/trusted/${PKG_NME} (...)"
+  cat << EOF > "${ARG_MNTD}/usr/share/keys/pkg/trusted/${PKG_NME}"
+function: "sha256"
+fingerprint: "${PKG_KEY}"
+EOF
+
+  # CREATE pkg(8) KEYS 2/3
+  __m "cat << EOF > ${ARG_MNTD}/usr/share/keys/pkgbase-15/trusted/${BCK_NME} (...)"
+  cat << EOF > "${ARG_MNTD}/usr/share/keys/pkgbase-15/trusted/${BCK_NME}"
+function: "sha256"
+fingerprint: "${BCK_KEY}"
+EOF
+
+  # CREATE pkg(8) KEYS 3/3
+  __m "cat << EOF > ${ARG_MNTD}/usr/share/keys/pkgbase-15/trusted/${AWS_NME} (...)"
+  cat << EOF > "${ARG_MNTD}/usr/share/keys/pkgbase-15/trusted/${AWS_NME}"
+function: "sha256"
+fingerprint: "${AWS_KEY}"
+EOF
+
+  # CHECK pkg(8) KEYS CREATED SUCCESSFULLY
+  if [ ${?} -ne 0 ]
+  then
+    echo "NOPE: can not create pkg(8) keys"
+    exit 1
+  fi
+
+  # CREATE /etc and /boot DIRS
+  __m "mkdir -p ${ARG_MNTD}/etc ${ARG_MNTD}/boot"
+  if ! mkdir -p "${ARG_MNTD}/etc" "${ARG_MNTD}/boot" 2> /dev/null
+  then
+    echo "NOPE: can not create /boot OR /etc DIRS"
+    exit 1
+  fi
+
+  # SET BASIC CONFIGS - DNS
+  __m "echo nameserver 1.1.1.1 > ${ARG_MNTD}/etc/resolv.conf"
+  echo nameserver 1.1.1.1 > "${ARG_MNTD}/etc/resolv.conf"
+
+  # SET BASIC CONFIGS - fstab(5)
+  __m "cat << EOF > ${ARG_MNTD}/etc/fstab (...)"
+  cat << EOF > "${ARG_MNTD}/etc/fstab"
+/dev/gpt/swap0  none  swap  sw,failok  0 0
+EOF
+
+  # SET BASIC CONFIGS - loader(8)
+  __m "cat << EOF > ${ARG_MNTD}/boot/loader.conf (...)"
+  cat << EOF > "${ARG_MNTD}/boot/loader.conf"
+zfs_load=YES
+kern.geom.label.disk_ident.enable=0
+EOF
+
+  # SET BASIC CONFIGS - rc.conf(5)
+  __m "cat << EOF > ${ARG_MNTD}/etc/rc.conf (...)"
+  cat << EOF > "${ARG_MNTD}/etc/rc.conf"
+  ifconfig_DEFAULT="DHCP"
+  hostname="verimg"
+  zfs_enable=YES
+  sshd_enable=YES
+EOF
+
+  # CHECK CONFIGS EXIT STATUS
+  if [ ${?} -ne 0 ]
+  then
+    echo "NOPE: can not populate configs"
+    exit 1
+  fi
+
+  # UPDATE pkg(8) REPOS
+  __m "pkg --rootdir ${ARG_MNTD} --repo-conf-dir /usr/obj/repos -o IGNORE_OSVERSION=yes update"
+  if ! pkg --rootdir "${ARG_MNTD}" --repo-conf-dir /usr/obj/repos -o IGNORE_OSVERSION=yes \
+         update 2> /dev/null
+  then
+    echo "NOPE: can not update pkg(8) repos"
+    exit 1
+  fi
+
+  # INSTALL PKGBASE FreeBSD-set-base SET
+  __m "pkg --rootdir ${ARG_MNTD} --repo-conf-dir /usr/obj/repos -o IGNORE_OSVERSION=yes install -r FreeBSD-base -U -y FreeBSD-set-base"
+  if ! pkg --rootdir "${ARG_MNTD}" --repo-conf-dir /usr/obj/repos -o IGNORE_OSVERSION=yes \
+         install -r FreeBSD-base -U -y FreeBSD-set-base 2> /dev/null
+  then
+    echo "NOPE: can not install 'FreeBSD-set-base' set"
+    exit 1
+  fi
+
+  # CREATE TARGET pkg(8) REPOS DIR IN CHROOT
+  __m "mkdir -p ${ARG_MNTD}/usr/local/etc/pkg/repos"
+  if ! mkdir -p "${ARG_MNTD}/usr/local/etc/pkg/repos" 2> /dev/null
+  then
+    echo "NOPE: can not create '${ARG_MNTD}/usr/local/etc/pkg/repos' dir"
+    exit 1
+  fi
+
+  # CHECK WHICH pkg(8) BRANCH WE WANT
+  if [ "${ARG_BRCH}" != "quarterly" ]
+  then
+    # SWITCH FROM 'quarterly' TO 'latest' FOR pkg(8) BRANCH
+    __m "sed s/quarterly/${ARG_BRCH}/g ${ARG_MNTD}/etc/pkg/FreeBSD.conf ${ARG_MNTD}/usr/local/etc/pkg/repos/FreeBSD.conf"
+    if ! sed s/quarterly/${ARG_BRCH}/g "${ARG_MNTD}/etc/pkg/FreeBSD.conf" \
+           > "${ARG_MNTD}/usr/local/etc/pkg/repos/FreeBSD.conf" 2> /dev/null
+    then
+      echo "NOPE: can not set '${ARG_BRCH}' pkg(8) branch"
+      exit 1
+    fi
+  fi
+
+  # ENABLE PKGBASE IN pkg(8)
+  __m "echo 'FreeBSD-base: { enabled: yes }' >> ${ARG_MNTD}/usr/local/etc/pkg/repos/FreeBSD.conf"
+  if ! echo 'FreeBSD-base: { enabled: yes }' >> "${ARG_MNTD}/usr/local/etc/pkg/repos/FreeBSD.conf" 2> /dev/null
+  then
+    echo "NOPE: can not enable PKGBASE in pkg(8) '${ARG_MNTD}/usr/local/etc/pkg/repos/FreeBSD.conf' config"
+    exit 1
+  fi
+
+  # UPDATE AND BOOTSTRAP pkg(1) IN CHROOT
+  __m "pkg --chroot ${ARG_MNTD} update"
+  if ! pkg --chroot "${ARG_MNTD}" update 2> /dev/null
+  then
+    echo "NOPE: can not update pkg(8) in chroot dir"
+    exit 1
+  fi
+
+  # INSTALL REQUIRED pkg(8) PACKAGES
+  __m "pkg --chroot ${ARG_MNTD} install -y $( echo ${ARG_INST} | tr ':' ' ' )"
+  if ! pkg --chroot "${ARG_MNTD}" install -y $( echo "${ARG_INST}" | tr ':' ' ' ) 2> /dev/null
+  then
+    echo "NOPE: can not install specified pkg(8) packages"
+    exit 1
+  fi
+
+  # SET bootfs ZFS POOL PROPERTY IF IN 'img' TYPE AND EXPLORT ZFS POOL
+  if [ "${ARG_TYPE}" = "img" ]
+  then
+    __m "zpool set bootfs=${ARG_POOL}/ROOT/default ${ARG_POOL}"
+    if ! zpool set bootfs="${ARG_POOL}/ROOT/default" "${ARG_POOL}" 2> /dev/null
+    then
+      echo "NOPE: can not setup 'bootfs' ZFS pool property"
+      exit 1
+    fi
+
+    # EXPORT ZFS POOL
+    __m "zpool export ${ARG_POOL}"
+    if ! zpool export "${ARG_POOL}" 2> /dev/null
+    then
+      echo "NOPE: can not export '${ARG_POOL}' ZFS pool"
+      exit 1
+    fi
+
+    # UNMAP md(4) DEVICE WHEN IN 'img' TYPE
+    if [ "${ARG_TYPE}" = "img" ]
+    then
+
+      # UNMAP md(4) DEVICE
+      __m "mdconfig -d -u /dev/${DEVICE}"
+      if ! mdconfig -d -u "/dev/${DEVICE}" 2> /dev/null
+      then
+        echo "NOPE: can not unmap md(4) device"
+        exit 1
+      fi
+
+    fi
+  fi
+  }
+# FUNCTION TO SETUP FreeBSD (end)
+
+# FUNCTION TO CREATE DISK IMAGE (begin)
+__verimg_image() {
+
+  # CHECK IF DISK IMAGE ALREADY EXISTS
+  if [ -f "${ARG_FILE}" -a "${ARG_FORC}" != "yes" ]
+  then
+    echo "NOPE: image '${ARG_FILE}' already exists"
+    exit 1
+  fi
+
+  # CREATE DISK IMAGE
+  __m "truncate -s ${ARG_SIZE} ${ARG_FILE}"
+  if ! truncate -s "${ARG_SIZE}" "${ARG_FILE}" 2> /dev/null
+  then
+    echo "NOPE: truncate(1) is not able to create '${ARG_FILE}' file."
+    exit 1
+  fi
+
+  # MAP DISK IMAGE WITH md(4) DRIVER
+  __m "mdconfig -a -t vnode -f ${ARG_FILE}"
+  DEVICE=$( mdconfig -a -t vnode -f "${ARG_FILE}" )
+  if ! echo "${DEVICE}" | grep -q -E '^md[0-9]+$' 2> /dev/null
+  then
+    echo "NOPE: can not map '${ARG_FILE}' file with md(4) driver."
+    exit 1
+  fi
+
+  # CREATE GPT PARTITION SCHEME AND PARTITIONS
+  __m "gpart create/add/bootcode ... ${DEVICE}"
+  gpart create -s GPT                                   ${DEVICE}
+  gpart add -a 4k -s 512K -t freebsd-boot -l gptboot0   ${DEVICE}
+  gpart add -a 4k -s 40M  -t efi          -l efiboot0   ${DEVICE}
+  gpart add -a 4k -s 1G   -t freebsd-swap -l swap0      ${DEVICE}
+  gpart add -a 4k -s 8G   -t freebsd-zfs  -l zfs0       ${DEVICE}
+  gpart bootcode -b /boot/pmbr -p /boot/gptzfsboot -i 1 ${DEVICE}
+
+  # CHECK GPART EXIT STATUS
+  if [ ${?} -ne 0 ]
+  then
+    echo "NOPE: can not create gpart(8) partitions"
+    exit 1
+  fi
+
+  # CREATE FAT32 FILESYSTEM FOR UEFI PARTITION
+  __m "newfs_msdos -F 32 -c 1 /dev/${DEVICE}p2"
+  if ! newfs_msdos -F 32 -c 1 "/dev/${DEVICE}p2" 2> /dev/null
+  then
+    echo "NOPE: can not create FAT32 filesystem for UEFI partition"
+    exit 1
+  fi
+
+  # CREATE DIRECTORY FOR UEFI MOUNT
+  __m "mkdir -p ${ARG_MNTD}/efi"
+  if ! mkdir -p "${ARG_MNTD}/efi" 2> /dev/null
+  then
+    echo "NOPE: can not create UEFI dir."
+    exit 1
+  fi
+
+  # MOUNT UEFI PARTITION
+  __m "mount_msdosfs /dev/${DEVICE}p2 ${ARG_MNTD}/efi"
+  if ! mount_msdosfs "/dev/${DEVICE}p2" "${ARG_MNTD}/efi" 2> /dev/null
+  then
+    echo "NOPE: can not mount UEFI partition"
+    exit 1
+  fi
+
+  # CREATE UEFI DIRS
+  __m "mkdir -p ${ARG_MNTD}/efi/EFI/BOOT"
+  if ! mkdir -p "${ARG_MNTD}/efi/EFI/BOOT" 2> /dev/null
+  then
+    echo "NOPE: can not create UEFI dirs"
+    exit 1
+  fi
+
+  # INSTALL FreeBSD loader.efi INTO UEFI PARTITION
+  __m "cp /boot/loader.efi ${ARG_MNTD}/efi/EFI/BOOT/bootx64.efi"
+  if ! cp /boot/loader.efi "${ARG_MNTD}/efi/EFI/BOOT/bootx64.efi" 2> /dev/null
+  then
+    echo "NOPE: can not install 'loader.efi' into UEFI partition"
+    exit 1
+  fi
+
+  # UNMOUNT UEFI PARTITION
+  __m "umount -f ${ARG_MNTD}/efi"
+  umount -f "${ARG_MNTD}/efi" 2> /dev/null
+
+  # CREATE ZFS POOL IF IN 'img' TYPE
+  if [ "${ARG_TYPE}" = "img" ]
+  then
+
+    # CREATE ZFS POOL
+    __m "zpool create -R ${ARG_MNTD} -O compress=lz4 -O atime=off -m none -f ${ARG_POOL} ${DEVICE}p4"
+    if ! zpool create -R "${ARG_MNTD}" -O compress=lz4 -O atime=off -m none -f ${ARG_POOL} "${DEVICE}p4" 2> /dev/null
+    then
+      echo "NOPE: can not create ZFS 'sys' pool"
+      exit 1
+    fi
+
+    # CREATE ZFS DATASETS
+    __m "zfs create ... ${ARG_POOL}"
+    zfs create -o mountpoint=none                          ${ARG_POOL}/ROOT
+    zfs create -o mountpoint=/                             ${ARG_POOL}/ROOT/default
+    zfs create -o mountpoint=/home                         ${ARG_POOL}/home
+    zfs create -o mountpoint=/tmp -o exec=on -o setuid=off ${ARG_POOL}/tmp
+    zfs create -o mountpoint=/usr -o canmount=off          ${ARG_POOL}/usr
+    zfs create -o setuid=off                               ${ARG_POOL}/usr/ports
+    zfs create                                             ${ARG_POOL}/usr/src
+    zfs create -o mountpoint=/var -o canmount=off          ${ARG_POOL}/var
+    zfs create -o exec=off -o setuid=off                   ${ARG_POOL}/var/audit
+    zfs create -o exec=off -o setuid=off                   ${ARG_POOL}/var/crash
+    zfs create -o exec=off -o setuid=off                   ${ARG_POOL}/var/log
+    zfs create -o atime=on                                 ${ARG_POOL}/var/mail
+    zfs create -o setuid=off                               ${ARG_POOL}/var/tmp
+
+    # CHECK ZFS CREATE EXIT STATUS
+    if [ ${?} -ne 0 ]
+    then
+      echo "NOPE: can not create ZFS datasets"
+      exit 1
+    fi
+
+  fi
+  }
+# FUNCTION TO CREATE DISK IMAGE (end)
+
+# FUNCTION TO PRINT STARTUP VALUES (begin)
+__verimg_print() {
+  # PRINT STARTUP VALUES
+  echo "INFO: options that will be used"
+  echo "  ARG_MODE: ${ARG_MODE}"
+  echo "  ARG_TYPE: ${ARG_TYPE}"
+  echo "  ARG_FILE: ${ARG_FILE}"
+  echo "  ARG_SIZE: ${ARG_SIZE}"
+  echo "  ARG_VERS: ${ARG_VERS}"
+  echo "  ARG_INST: ${ARG_INST}"
+  echo "  ARG_MNTD: ${ARG_MNTD}"
+  echo "  ARG_POOL: ${ARG_POOL}"
+  echo "  ARG_REPO: ${ARG_REPO}"
+  echo
+  }
+# FUNCTION TO PRINT STARTUP VALUES (end)
+
+# DISPLAY VERSION
+case "${1}" in
+  (--version|-version|version)
+    echo
+    echo " verbsd(8) 0.1 2026/04/15"
+    echo
+    exit 0
+    ;;
+esac
+
+# DISPLAY HELP
+case "${1}" in
+  (-h|--help|-help|help)
+    __usage
+    ;;
+esac
+
+# OBTAIN ARGUMENTS FOR OPTIONS
+while getopts M:t:f:s:r:i:m:R:p:b:n ARG
+do
+  case "${ARG}" in
+    (M) ARG_MODE="${OPTARG}" ;;
+    (t) ARG_TYPE="${OPTARG}" ;;
+    (f) ARG_FILE="${OPTARG}" ;;
+    (s) ARG_SIZE="${OPTARG}" ;;
+    (r) ARG_VERS="${OPTARG}" ;;
+    (i) ARG_INST="${OPTARG}" ;;
+    (m) ARG_MNTD="${OPTARG}" ;;
+    (R) ARG_REPO="${OPTARG}" ;;
+    (s) ARG_POOL="${OPTARG}" ;;
+    (b) ARG_BRCH="${OPTARG}" ;;
+    (n) ARG_NDRY="yes"       ;;
+    (*) __usage              ;;
+  esac
+done
+
+case "${ARG_TYPE}" in
+  (mnt)
+    ARG_FILE="-"
+    ARG_SIZE="-"
+    ;;
+esac
+
+# PRINT STARTUP VALUES
+__verimg_print
+
+# EXIT IF DRY RUN DEFINED
+if [ "${ARG_NDRY}" = "yes" ]
+then
+  exit 0
+fi
+
+# CREATE/PREPARE DISK IMAGE IN 'img' MODE
+case "${ARG_TYPE}" in
+  (img) __verimg_image ;;
+esac
+
+# DO WHAT IS NEEDED IN SPECIFIED MODE
+case "${ARG_MODE}" in
+
+  (fetch:build:setup)
+    __verimg_fetch
+    __verimg_build
+    __verimg_setup
+    ;;
+
+  (build:setup)
+    __verimg_build
+    __verimg_setup
+    ;;
+
+  (setup)
+    __verimg_setup
+    ;;
+
+esac

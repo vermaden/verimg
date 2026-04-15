@@ -1,0 +1,21 @@
+#! /bin/sh
+
+mkdir -p /var/ccache
+
+cat << EOF >> /etc/make.conf
+# ccache(1)
+  WITH_CCACHE_BUILD=yes
+  CCACHE_DIR=/var/ccache
+EOF
+
+cat << EOF > /var/ccache/ccache.conf
+max_size = 0
+cache_dir = /var/ccache
+base_dir = /var/ccache
+hash_dir = false
+EOF
+
+ln -sf /var/ccache/ccache.conf /usr/local/etc/ccache.conf
+
+ccache -sv
+
