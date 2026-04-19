@@ -38,6 +38,7 @@ ARG_SIZE=${ARG_SIZE:-"10g"}
 ARG_VERS=${ARG_VERS:-"releng/15.0"}
 ARG_INST=${ARG_INST:-"beadm:lsblk"}
 ARG_MNTD=${ARG_MNTD:-"/mnt"}
+ARG_SRCD=${ARG_SRCD:-"/usr/src"}
 ARG_TYPE=${ARG_TYPE:-"img"}
 ARG_REPO=${ARG_REPO:-"/usr/obj/usr/src/repo/FreeBSD:15:$( uname -m )/latest"}
 ARG_POOL=${ARG_POOL:-"sys"}
@@ -51,8 +52,57 @@ BCK_KEY="56a77bdcb6c3cf7984729c6138bd5617c24aa0d466b3b604c96205b2c5629f3c"
 AWS_NME="awskms-15"
 AWS_KEY="1d7b45d20fa8d6ed26f9b4a13ac81a6b5df860b9fe644d07b87e92298ba72595"
 
+# TRAP FUNCTION TO CLEANUP (begin)
+__verimg_clean() {
+
+  # EXPORT CREATE ZFS POOL
+  if zpool list ${ARG_POOL} 1> /dev/null 2> /dev/null
+  then
+
+    if ! zpool export -f ${ARG_POOL} 2> /dev/null
+    then
+      echo "NOPE: can not export ZFS '${ARG_POOL}' pool"
+    else
+      echo "INFO: ZFS '${ARG_POOL}' pool exported"
+    fi
+
+  fi
+
+  # UNMAPE FILE FROM md(4) NODE
+  if [ "${DEVICE}" != "" ]
+  then
+
+    if ! mdconfig -d -u /dev/${DEVICE} 2> /dev/null
+    then
+      echo "NOPE: can not unmap md(4) '/dev/${DEVICE}' device"
+    else
+      echo "INFO: md(4) device unmapped from '/dev/${DEVICE}' node"
+    fi
+
+  fi
+
+  # CHECK IF DISK IMAGE IS ALREADY MAPPED WITH md(4) DRIVER ON OTHER PLACES
+  ARG_FILE_PATH="$( pwd )/${ARG_FILE}"
+  mdconfig -l -v \
+    | while read NAME TYPE SIZE FILENAME GARBAGE
+      do
+
+        if [ "${ARG_FILE_PATH}" = "${FILENAME}" ]
+        then
+
+          if ! mdconfig -d -u /dev/${NAME}
+          then
+            echo "NOPE: can not unmap '${ARG_FILE}' from '/dev/${NAME}' place"
+          fi
+
+        fi
+
+      done
+  }
+# TRAP FUNCTION TO CLEANUP (end)
+
 # CLEAN IN BETWEEN AND AFTER
-trap "zpool export -f ${ARG_POOL}; mdconfig -d -u /dev/${DEVICE} 2> /dev/null" SIGINT SIGQUIT SIGHUP SIGTRAP SIGABRT SIGTERM
+trap __verimg_clean SIGINT SIGQUIT SIGHUP SIGTRAP SIGABRT SIGTERM SIGEXIT
 
 # FUNCTION TO DISPLAY HELP (begin)
 __usage() {
@@ -66,6 +116,7 @@ __usage() {
   echo "  -r VERS  which FreeBSD version to use (default: releng/15.0)"
   echo "  -i LIST  colon (:) separated packages list to install (default: beadm:lsblk)"
   echo "  -m MNTD  mount directory for installation (default: /mnt)"
+  echo "  -S SRCD  directory for FreeBSD source (default: /usr/src)"
   echo "  -p POOL  specify ZFS pool name (default: sys)"
   echo "  -b BRCH  specify branch for pkg(8) (default: latest)"
   echo "  -n       display options and exit"
@@ -112,22 +163,24 @@ __verimg_fetch() {
     exit 1
   fi
 
-  # FETCH FreeBSD SOURCES INTO /usr/src
-  __m "git clone -b  ${ARG_VERS}  --depth 1 https://git.freebsd.org/src.git"
-  if ! git clone -b "${ARG_VERS}" --depth 1 https://git.freebsd.org/src.git /usr/src 2> /dev/null
-  then
-    echo "NOPE: can not fetch FreeBSD '${ARG_VERS}' source"
-    exit 1
-  fi
+#  # FETCH FreeBSD SOURCES INTO ${ARG_SRCD} DIR
+#  __m "git clone -b '${ARG_VERS}' --depth 1 https://git.freebsd.org/src.git ${ARG_SRCD}"
+#  if ! git clone -b "${ARG_VERS}" --depth 1 https://git.freebsd.org/src.git ${ARG_SRCD} 2> /dev/null
+#  then
+#    echo "NOPE: can not fetch FreeBSD '${ARG_VERS}' source into '${ARG_SRCD}' dir"
+#    exit 1
+#  fi
+
   }
 # FUNCTION TO FETCH FreeBSD SOURCE (end)
 
 # FUNCTION TO BUILD FreeBSD (begin)
 __verimg_build() {
-  __m "cd /usr/src"
-  if ! cd /usr/src 2> /dev/null
+
+  __m "cd ${ARG_SRCD}"
+  if ! cd ${ARG_SRCD} 2> /dev/null
   then
-    echo "NOPE: can not cd(1) into /usr/src dir."
+    echo "NOPE: can not cd(1) into '${ARG_SRCD}' dir."
     exit 1
   fi
 
@@ -135,14 +188,16 @@ __verimg_build() {
   __m "make -j $( nproc --ignore=1 ) buildworld buildkernel update-packages"
   if ! make -j $( nproc --ignore=1 ) buildworld buildkernel update-packages 2> /dev/null
   then
-    echo "NOPE: can not build FreeBSD from /usr/src source"
+    echo "NOPE: can not build FreeBSD from '${ARG_SRCD}' source"
     exit 1
   fi
+
   }
 # FUNCTION TO BUILD FreeBSD (end)
 
 # FUNCTION TO SETUP FreeBSD (begin)
 __verimg_setup() {
+
   # CHANGE CURRENT DIR INTO REPO DIR
   __m "cd "${ARG_REPO}""
   if ! cd "${ARG_REPO}" 2> /dev/null
@@ -356,18 +411,67 @@ EOF
 
     fi
   fi
+
   }
 # FUNCTION TO SETUP FreeBSD (end)
 
-# FUNCTION TO CREATE DISK IMAGE (begin)
-__verimg_image() {
+# FUNCTION TO CHECK THINGS BEFORE MAKING ACTUAL WORK (begin)
+__verimg_check() {
 
   # CHECK IF DISK IMAGE ALREADY EXISTS
-  if [ -f "${ARG_FILE}" -a "${ARG_FORC}" != "yes" ]
+  if [ -f "${ARG_FILE}" ]
   then
     echo "NOPE: image '${ARG_FILE}' already exists"
+    echo "INFO: you can remove it with following command:"
+    echo "INFO:   # rm ${ARG_FILE}"
+    EXIT=1
+  fi
+
+  # CHECK ZFS POOL NAME IS NOT IN USE IN SYSTEM
+  while read POOL
+  do
+    if [ "${POOL}" = "${ARG_POOL}" ]
+    then
+      echo "NOPE: ZFS pool '${ARG_POOL}' already exists in the system"
+      echo "INFO: export ZFS '${ARG_POOL}' pool with this command:"
+      echo "INFO:   # zpool export -f ${ARG_POOL}"
+      echo "INFO: ... or use different ZFS pool name then '${ARG_POOL}' one"
+      EXIT=1
+    fi
+  done << EOF
+  $( zpool list -H -o name 2> /dev/null)
+EOF
+
+  # CHECK IF DISK IMAGE IS ALREADY MAPPED WITH md(4) DRIVER
+  ARG_FILE_PATH="$( pwd )/${ARG_FILE}"
+  while read NAME TYPE SIZE FILENAME GARBAGE
+  do
+    if [ "${ARG_FILE_PATH}" = "${FILENAME}" ]
+    then
+      if ! mdconfig -d -u /dev/${NAME} 2> /dev/null
+      then
+        echo "NOPE: can not unmap '${ARG_FILE}' from '/dev/${NAME}' place"
+        echo "INFO: you can use following command to list mapped md(4) devices"
+        echo "INFO:   # mdconfig -l -v"
+        echo "INFO: probably ZFS 'ARG_POOL' pool is not exported and blocks it"
+        EXIT=1
+      fi
+    fi
+  done << EOF
+  $( mdconfig -l -v 2> /dev/null)
+EOF
+
+  if [ "${EXIT}" = "1" ]
+  then
+    __verimg_clean
     exit 1
   fi
+
+  }
+# FUNCTION TO CHECK THINGS BEFORE MAKING ACTUAL WORK (end)
+
+# FUNCTION TO CREATE DISK IMAGE (begin)
+__verimg_image() {
 
   # CREATE DISK IMAGE
   __m "truncate -s ${ARG_SIZE} ${ARG_FILE}"
@@ -482,11 +586,13 @@ __verimg_image() {
     fi
 
   fi
+
   }
 # FUNCTION TO CREATE DISK IMAGE (end)
 
 # FUNCTION TO PRINT STARTUP VALUES (begin)
 __verimg_print() {
+
   # PRINT STARTUP VALUES
   echo "INFO: options that will be used"
   echo "  ARG_MODE: ${ARG_MODE}"
@@ -496,9 +602,11 @@ __verimg_print() {
   echo "  ARG_VERS: ${ARG_VERS}"
   echo "  ARG_INST: ${ARG_INST}"
   echo "  ARG_MNTD: ${ARG_MNTD}"
+  echo "  ARG_SRCD: ${ARG_SRCD}"
   echo "  ARG_POOL: ${ARG_POOL}"
   echo "  ARG_REPO: ${ARG_REPO}"
   echo
+
   }
 # FUNCTION TO PRINT STARTUP VALUES (end)
 
@@ -506,7 +614,7 @@ __verimg_print() {
 case "${1}" in
   (--version|-version|version)
     echo
-    echo " verbsd(8) 0.1 2026/04/15"
+    echo " verbsd(8) 0.2 2026/04/19"
     echo
     exit 0
     ;;
@@ -520,7 +628,7 @@ case "${1}" in
 esac
 
 # OBTAIN ARGUMENTS FOR OPTIONS
-while getopts M:t:f:s:r:i:m:R:p:b:n ARG
+while getopts M:t:f:s:S:r:i:m:R:p:b:n ARG
 do
   case "${ARG}" in
     (M) ARG_MODE="${OPTARG}" ;;
@@ -530,6 +638,8 @@ do
     (r) ARG_VERS="${OPTARG}" ;;
     (i) ARG_INST="${OPTARG}" ;;
     (m) ARG_MNTD="${OPTARG}" ;;
+    (S) ARG_SRCD="${OPTARG}"
+        ARG_REPO="/usr/obj/${ARG_SRCD}/repo/FreeBSD:15:$( uname -m )/latest" ;;
     (R) ARG_REPO="${OPTARG}" ;;
     (s) ARG_POOL="${OPTARG}" ;;
     (b) ARG_BRCH="${OPTARG}" ;;
@@ -553,6 +663,9 @@ if [ "${ARG_NDRY}" = "yes" ]
 then
   exit 0
 fi
+
+# CHECK NEEDSD THINGS BEFORE DOINT ACTUAL WORK
+__verimg_check
 
 # CREATE/PREPARE DISK IMAGE IN 'img' MODE
 case "${ARG_TYPE}" in

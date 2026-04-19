@@ -5,7 +5,7 @@ Tool for creating customized FreeBSD VM image(s) and also for unattended install
 These are the `verimg(8)` options.
 
 ```
-FreeBSD # verimg --help               
+FreeBSD # verimg --help
 usage:
   verimg: [OPTION(s)]
 
@@ -15,6 +15,7 @@ options:
   -r VERS  which FreeBSD version to use (default: releng/15.0)
   -i LIST  colon (:) separated packages list to install (default: beadm:lsblk)
   -m MNTD  mount directory for installation (default: /mnt)
+  -S SRCD  directory for FreeBSD source (default: /usr/src)
   -p POOL  specify ZFS pool name (default: sys)
   -b BRCH  specify branch for pkg(8) (default: latest)
   -n       display options and exit
@@ -49,7 +50,7 @@ By default `verimg(8)` fetches the FreeBSD sources ... builds `world`/`kernel` a
 Here are the defaults printed.
 
 ```
-FreeBSD # verimg -n                                                           
+FreeBSD # verimg -n
 INFO: options that will be used
   ARG_MODE: fetch:build:setup
   ARG_TYPE: img
@@ -58,6 +59,7 @@ INFO: options that will be used
   ARG_VERS: releng/15.0
   ARG_INST: beadm:lsblk
   ARG_MNTD: /mnt
+  ARG_SRCD: /usr/src
   ARG_POOL: sys
   ARG_REPO: /usr/obj/usr/src/repo/FreeBSD:15:amd64/latest
 
@@ -75,6 +77,7 @@ INFO: options that will be used
   ARG_VERS: releng/15.0
   ARG_INST: beadm:lsblk
   ARG_MNTD: /mnt
+  ARG_SRCD: /usr/src
   ARG_POOL: sys
   ARG_REPO: /usr/obj/usr/src/repo/FreeBSD:15:amd64/latest
 
