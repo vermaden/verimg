@@ -163,13 +163,13 @@ __verimg_fetch() {
     exit 1
   fi
 
-#  # FETCH FreeBSD SOURCES INTO ${ARG_SRCD} DIR
-#  __m "git clone -b '${ARG_VERS}' --depth 1 https://git.freebsd.org/src.git ${ARG_SRCD}"
-#  if ! git clone -b "${ARG_VERS}" --depth 1 https://git.freebsd.org/src.git ${ARG_SRCD} 2> /dev/null
-#  then
-#    echo "NOPE: can not fetch FreeBSD '${ARG_VERS}' source into '${ARG_SRCD}' dir"
-#    exit 1
-#  fi
+  # FETCH FreeBSD SOURCES INTO ${ARG_SRCD} DIR
+  __m "git clone -b '${ARG_VERS}' --depth 1 https://git.freebsd.org/src.git ${ARG_SRCD}"
+  if ! git clone -b "${ARG_VERS}" --depth 1 https://git.freebsd.org/src.git ${ARG_SRCD} 2> /dev/null
+  then
+    echo "NOPE: can not fetch FreeBSD '${ARG_VERS}' source into '${ARG_SRCD}' dir"
+    exit 1
+  fi
 
   }
 # FUNCTION TO FETCH FreeBSD SOURCE (end)
