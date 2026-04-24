@@ -44,7 +44,6 @@ ARG_TYPE=${ARG_TYPE:-"img"}
 ARG_REPO=${ARG_REPO:-"/usr/obj/usr/src/repo/FreeBSD:15:$( uname -m )/latest"}
 ARG_POOL=${ARG_POOL:-"sys"}
 ARG_BRCH=${ARG_BRCH:-"latest"}
-ARG_BRCH=${ARG_BRCH:-"latest"}
 
 # pkg(8) KEYS
 PKG_NME="pkg.freebsd.org.2013102301"
@@ -140,6 +139,7 @@ __usage() {
   echo "    ARG_KERN: GENERIC                                      "
   echo "    ARG_POOL: sys                                          "
   echo "    ARG_REPO: /usr/obj/usr/src/repo/FreeBSD:15:amd64/latest"
+  echo "    ARG_BRCH: latest                                       "
   echo
   echo "cleanup:"
   echo "  ${NAME}(8) takes care to clean up (unmount/export/...) after job is done/fail"

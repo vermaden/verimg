@@ -53,6 +53,7 @@ examples:
     ARG_KERN: GENERIC
     ARG_POOL: sys
     ARG_REPO: /usr/obj/usr/src/repo/FreeBSD:15:amd64/latest
+    ARG_BRCH: latest
 
 cleanup:
   verimg(8) takes care to clean up (unmount/export/...) after job is done/fail
