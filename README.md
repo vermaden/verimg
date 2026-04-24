@@ -5,7 +5,7 @@ Tool for creating customized FreeBSD VM image(s) and also for unattended install
 These are the `verimg(8)` options.
 
 ```
-FreeBSD # verimg --help
+FreeBSD # verimg -h
 usage:
   verimg: [OPTION(s)]
 
@@ -19,6 +19,8 @@ options:
   -p POOL  specify ZFS pool name (default: sys)
   -b BRCH  specify branch for pkg(8) (default: latest)
   -n       display options and exit
+  -k LIST  list of kernel configs to build in CONF1:CONF2:CONF3 format
+           if unspecified then only the GENERIC kernel will be built
   -t TYPE  type of operation is one of options:
            = img
              - create FILE backend and do setup there (default)
@@ -38,7 +40,30 @@ options:
              - setup FreeBSD from /usr/obj PKGBASE repository
 
 examples:
-  # verimg.sh -f FILE -s 20g -r releng/15.0 -i python:ansible
+  # verimg.sh -n -M setup -s 20g -r releng/15.0 -i lsblk:beadm:python:ansible
+  INFO: options that will be used
+    ARG_MODE: setup
+    ARG_TYPE: img
+    ARG_FILE: VERIMG
+    ARG_SIZE: 20g
+    ARG_VERS: releng/15.0
+    ARG_INST: beadm:lsblk:python:ansible
+    ARG_MNTD: /mnt
+    ARG_SRCD: /usr/src
+    ARG_KERN: GENERIC
+    ARG_POOL: sys
+    ARG_REPO: /usr/obj/usr/src/repo/FreeBSD:15:amd64/latest
+
+cleanup:
+  verimg(8) takes care to clean up (unmount/export/...) after job is done/fail
+  but if for some reason it does not clean up properly - use this manual way
+    # umount -f /mnt/dev
+    # zpool export -f sys
+    # mdconfig -d -u /dev/md0
+
+  md(4) device may be other then /dev/md0 so check with mdconfig(8) command
+    # mdconfig -l -v
+    md0     vnode      10G  /home/vermaden/VERIMG   -
 ```
 
 Steps like 'Fetch' and 'Build' are optional.
@@ -60,9 +85,10 @@ INFO: options that will be used
   ARG_INST: beadm:lsblk
   ARG_MNTD: /mnt
   ARG_SRCD: /usr/src
+  ARG_KERN: GENERIC
   ARG_POOL: sys
   ARG_REPO: /usr/obj/usr/src/repo/FreeBSD:15:amd64/latest
-
+  ARG_BRCH: latest
 ```
 
 Here is example `verimg(8)` run for unattended FreeBSD install in `VERIMG` file when FreeBSD sources were fetched earlier and `world`/`kernel` are already build with PKGBASE repo.
@@ -78,9 +104,10 @@ INFO: options that will be used
   ARG_INST: beadm:lsblk
   ARG_MNTD: /mnt
   ARG_SRCD: /usr/src
+  ARG_KERN: GENERIC
   ARG_POOL: sys
   ARG_REPO: /usr/obj/usr/src/repo/FreeBSD:15:amd64/latest
-
+  ARG_BRCH: latest
 ```
 
 Have fun.
