@@ -381,7 +381,8 @@ EOF
     CUSTOM_KERNELS_LIST=$( echo "${ARG_KERN}" | tr ':' ' ' | tr 'A-Z' 'a-z' )
     for I in ${CUSTOM_KERNELS_LIST}
     do
-      CUSTOM_KERNELS="${CUSTOM_KERNELS} FreeBSD-kernel-${I} FreeBSD-kernel-${I}-dbg"
+      CUSTOM_KERNELS="${CUSTOM_KERNELS} FreeBSD-kernel-${I}"
+    # CUSTOM_KERNELS="${CUSTOM_KERNELS} FreeBSD-kernel-${I} FreeBSD-kernel-${I}-dbg"
     done
   fi
 
