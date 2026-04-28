@@ -53,7 +53,7 @@ BCK_KEY="56a77bdcb6c3cf7984729c6138bd5617c24aa0d466b3b604c96205b2c5629f3c"
 AWS_NME="awskms-15"
 AWS_KEY="1d7b45d20fa8d6ed26f9b4a13ac81a6b5df860b9fe644d07b87e92298ba72595"
 
-# TRAP FUNCTION TO CLEANUP (begin)
+# TRAP FUNCTION TO CLEANUP BEGIN: __verimg_clean()
 __verimg_clean() {
 
   # UNMOUNT devfs(5) FILESYSTEM FROM CHROOT
@@ -84,12 +84,12 @@ __verimg_clean() {
 
       done
   }
-# TRAP FUNCTION TO CLEANUP (end)
+# TRAP FUNCTION TO CLEANUP END: __verimg_clean()
 
 # CLEAN IN BETWEEN AND AFTER
 trap __verimg_clean SIGINT SIGQUIT SIGHUP SIGTRAP SIGABRT SIGTERM
 
-# FUNCTION TO DISPLAY HELP (begin)
+# FUNCTION TO DISPLAY HELP BEGIN: __usage()
 __usage() {
   NAME="${0##*/}"
   echo "usage:"
@@ -154,16 +154,16 @@ __usage() {
   echo
   exit 1
   }
-# FUNCTION TO DISPLAY HELP (end)
+# FUNCTION TO DISPLAY HELP END: __usage()
 
-# FUNCTION TO DISPLAY MESSAGE BEFORE COMMAND (begin)
+# FUNCTION TO DISPLAY MESSAGE BEFORE COMMAND BEGIN: __m()
 __m() {
   echo
   echo "# ${@}"
   }
-# FUNCTION TO DISPLAY MESSAGE BEFORE COMMAND (end)
+# FUNCTION TO DISPLAY MESSAGE BEFORE COMMAND BEGIN END: __m()
 
-# FUNCTION TO FETCH FreeBSD SOURCE (begin)
+# FUNCTION TO FETCH FreeBSD SOURCE BEGIN: __verimg_fetch()
 __verimg_fetch() {
   # CHECK git(1) IS INSTALLED
   __m "which git(1)"
@@ -185,11 +185,12 @@ __verimg_fetch() {
   fi
 
   }
-# FUNCTION TO FETCH FreeBSD SOURCE (end)
+# FUNCTION TO FETCH FreeBSD SOURCE END: __verimg_fetch()
 
-# FUNCTION TO BUILD FreeBSD (begin)
+# FUNCTION TO BUILD FreeBSD BEGIN: __verimg_build()
 __verimg_build() {
 
+  # CHANGE CURRENT WORKING DIR TO FreeBSD SOURCE TREE
   __m "cd ${ARG_SRCD}"
   if ! cd ${ARG_SRCD} 2> /dev/null
   then
@@ -203,7 +204,7 @@ __verimg_build() {
   ARCH=$( uname -m )
   for CONFIG in ${KERNCONF}
   do
-    if [ ! -f ${ARG_SRCD}/sys/${ARCH}/conf/${CONFIG}
+    if [ ! -f ${ARG_SRCD}/sys/${ARCH}/conf/${CONFIG} ]
     then
       echo "NOPE: kernel config file '${CONFIG}' does not exists"
       __verimg_clean
@@ -221,9 +222,9 @@ __verimg_build() {
   fi
 
   }
-# FUNCTION TO BUILD FreeBSD (end)
+# FUNCTION TO BUILD FreeBSD END: __verimg_build()
 
-# FUNCTION TO SETUP FreeBSD (begin)
+# FUNCTION TO SETUP FreeBSD BEGIN: __verimg_setup()
 __verimg_setup() {
 
   # CHANGE CURRENT DIR INTO REPO DIR
@@ -325,21 +326,33 @@ EOF
   # SET BASIC CONFIGS - fstab(5)
   __m "cat << EOF > ${ARG_MNTD}/etc/fstab (...)"
   cat << EOF > "${ARG_MNTD}/etc/fstab"
+#DEV            #MNT  #FS   #OPTS      #DUMP/PASS
 /dev/gpt/swap0  none  swap  sw,failok  0 0
 EOF
 
   # SET BASIC CONFIGS - loader(8)
   __m "cat << EOF > ${ARG_MNTD}/boot/loader.conf (...)"
   cat << EOF > "${ARG_MNTD}/boot/loader.conf"
-zfs_load=YES
-kern.geom.label.disk_ident.enable=0
+# CORE
+  kern.geom.label.disk_ident.enable=0
+  zfs_load=YES
+
+# OPTIONAL
+  autoboot_delay=3
+  aesni_load=YES
+  geom_eli_load=YES
+  cryptodev_load=YES
+  vfs.zfs.prefetch_disable=1
 EOF
 
   # SET BASIC CONFIGS - rc.conf(5)
   __m "cat << EOF > ${ARG_MNTD}/etc/rc.conf (...)"
   cat << EOF > "${ARG_MNTD}/etc/rc.conf"
+# NETWORK
   ifconfig_DEFAULT="DHCP"
   hostname="verimg"
+
+# DAEMONS
   zfs_enable=YES
   sshd_enable=YES
 EOF
@@ -492,9 +505,9 @@ EOF
   fi
 
   }
-# FUNCTION TO SETUP FreeBSD (end)
+# FUNCTION TO SETUP FreeBSD END: __verimg_setup()
 
-# FUNCTION TO CHECK THINGS BEFORE MAKING ACTUAL WORK (begin)
+# FUNCTION TO CHECK THINGS BEFORE MAKING ACTUAL WORK BEGIN: __verimg_check()
 __verimg_check() {
 
   # CHECK IF DISK IMAGE ALREADY EXISTS
@@ -547,9 +560,9 @@ EOF
   fi
 
   }
-# FUNCTION TO CHECK THINGS BEFORE MAKING ACTUAL WORK (end)
+# FUNCTION TO CHECK THINGS BEFORE MAKING ACTUAL WORK END: __verimg_check()
 
-# FUNCTION TO CREATE DISK IMAGE (begin)
+# FUNCTION TO CREATE DISK IMAGE BEGIN: __verimg_image()
 __verimg_image() {
 
   # CREATE DISK IMAGE
@@ -677,9 +690,9 @@ __verimg_image() {
   fi
 
   }
-# FUNCTION TO CREATE DISK IMAGE (end)
+# FUNCTION TO CREATE DISK IMAGE END: __verimg_image()
 
-# FUNCTION TO PRINT STARTUP VALUES (begin)
+# FUNCTION TO PRINT STARTUP VALUES BEGIN: __verimg_print()
 __verimg_print() {
 
   # PRINT STARTUP VALUES
@@ -699,13 +712,13 @@ __verimg_print() {
   echo
 
   }
-# FUNCTION TO PRINT STARTUP VALUES (end)
+# FUNCTION TO PRINT STARTUP VALUES END: __verimg_print()
 
 # DISPLAY VERSION
 case "${1}" in
   (--version|-version|version)
     echo
-    echo "verimg 0.3 2026/04/24"
+    echo "verimg 0.4 2026/04/28"
     echo
     exit 0
     ;;
@@ -783,3 +796,4 @@ case "${ARG_MODE}" in
     ;;
 
 esac
+
